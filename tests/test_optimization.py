@@ -28,6 +28,8 @@ def test_optimization_engine_returns_result_objects() -> None:
         model=build_model(config),
         device=DeviceManager(prefer_mixed_precision=False).device,
         config=config.optimization,
+        target_mean=0.0,
+        target_std=1.0,
     )
     result = engine.target_reserve_optimization(policy, target_reserve=1000.0)
-    assert result.variable_name == "interest_rate"
+    assert result.variable_name == "scenario_interest_rate"

@@ -10,13 +10,14 @@ class PDEResidualLoss(BaseLoss):
     def forward(self, model, batch, predictions, context):
         del model
         dz_dt   = self.first_derivative(predictions=predictions, batch=batch, name="time")
-        r       = self.raw_feature(batch, "interest_rate")
+        r       = self.raw_feature(batch, "scenario_interest_rate")
         P       = self.raw_feature(batch, "premium")
         S       = self.raw_feature(batch, "sum_assured").clamp(min=1.0)
         mu_mort = self.raw_feature(batch, "mortality")
         t_mean  = batch["target_mean"].to(predictions.device)
         t_std   = batch["target_std"].to(predictions.device)
         z_offset = predictions + t_mean / t_std
-        residual = dz_dt - r * z_offset - P / (S * t_std) + mu_mort * (1.0 - z_offset)
+        survival_gap = ((1.0 - t_mean) / t_std) - predictions
+        residual = dz_dt - r * z_offset - P / (S * t_std) + mu_mort * survival_gap
         context["pde_residual"] = residual
         return self.reduce(residual.pow(2))

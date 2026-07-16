@@ -14,6 +14,12 @@ import torch
 from scipy.optimize import minimize, minimize_scalar
 
 from src.actuarial.policy import Policy
+from src.data.dataset import (
+    FEATURE_INDEX,
+    FEATURE_SCALES,
+    build_policy_feature_array,
+    normalize_raw_feature_array,
+)
 from src.utils.config import OptimizationConfig
 
 
@@ -52,17 +58,28 @@ class OptimizationEngine:
         target setting, and solvency-aware profitability analysis.
     """
 
-    def __init__(self, model: torch.nn.Module, device: torch.device, config: OptimizationConfig) -> None:
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        device: torch.device,
+        config: OptimizationConfig,
+        target_mean: float,
+        target_std: float,
+    ) -> None:
         """Initialize the optimization engine.
 
         Args:
             model: Trained reserve model.
             device: Execution device for optimization runs.
             config: Optimization hyperparameters and constraints.
+            target_mean: Mean used to standardize reserve-ratio targets.
+            target_std: Standard deviation used to standardize reserve-ratio targets.
         """
         self.model = model.to(device)
         self.device = device
         self.config = config
+        self.target_mean = float(target_mean)
+        self.target_std = float(target_std)
 
     def _features_from_policy(self, policy: Policy) -> torch.Tensor:
         """Build an optimization feature tensor from a policy.
@@ -73,18 +90,9 @@ class OptimizationEngine:
         Returns:
             torch.Tensor: Single-row feature tensor.
         """
-        return torch.tensor(
-            [[
-                0.0,
-                float(policy.age),
-                policy.interest_rate,
-                policy.premium,
-                policy.sum_assured,
-                policy.mortality_profile.intensity_at(0.0),
-            ]],
-            dtype=torch.float32,
-            device=self.device,
-        )
+        raw = build_policy_feature_array(policy=policy, time_point=0.0)
+        normalized = normalize_raw_feature_array(raw)
+        return torch.tensor(normalized, dtype=torch.float32, device=self.device).unsqueeze(0)
 
     def _predict(self, features: torch.Tensor) -> torch.Tensor:
         """Predict reserves for optimization inputs.
@@ -96,7 +104,10 @@ class OptimizationEngine:
             torch.Tensor: Model reserve prediction tensor.
         """
         self.model.eval()
-        return self.model(features)
+        z = self.model(features)
+        sum_assured = features[:, FEATURE_INDEX["sum_assured"] : FEATURE_INDEX["sum_assured"] + 1]
+        sum_assured = sum_assured * FEATURE_SCALES["sum_assured"]
+        return (z * self.target_std + self.target_mean) * sum_assured
 
     def target_reserve_optimization(self, policy: Policy, target_reserve: float) -> OptimizationResult:
         """Find the interest rate that produces a target reserve.
@@ -119,13 +130,15 @@ class OptimizationEngine:
 
         def objective(interest_rate: float) -> float:
             features = self._features_from_policy(policy).clone()
-            features[:, 2] = interest_rate
+            features[:, FEATURE_INDEX["scenario_interest_rate"]] = (
+                interest_rate / FEATURE_SCALES["scenario_interest_rate"]
+            )
             reserve = float(self._predict(features).detach().cpu().item())
             return (reserve - target_reserve) ** 2
 
         result = minimize_scalar(objective, bounds=(-0.02, 0.15), method="bounded")
         return OptimizationResult(
-            variable_name="interest_rate",
+            variable_name="scenario_interest_rate",
             optimal_value=float(result.x),
             objective_value=float(result.fun),
             method="scipy_minimize_scalar",
@@ -152,7 +165,7 @@ class OptimizationEngine:
         for _ in range(self.config.steps):
             optimizer.zero_grad(set_to_none=True)
             features = self._features_from_policy(policy).clone()
-            features[:, 3] = premium
+            features[:, FEATURE_INDEX["premium"]] = premium / FEATURE_SCALES["premium"]
             reserve = self._predict(features)
             profitability = premium - 0.01 * reserve
             loss = -profitability.mean()
@@ -160,7 +173,7 @@ class OptimizationEngine:
             optimizer.step()
 
         optimized_features = self._features_from_policy(policy).clone()
-        optimized_features[:, 3] = premium.detach()
+        optimized_features[:, FEATURE_INDEX["premium"]] = premium.detach() / FEATURE_SCALES["premium"]
         objective_value = float((premium - 0.01 * self._predict(optimized_features)).detach().cpu().item())
         return OptimizationResult(
             variable_name="premium",
@@ -187,7 +200,7 @@ class OptimizationEngine:
         def objective(values: np.ndarray) -> float:
             premium_value = float(values[0])
             features = self._features_from_policy(policy).clone()
-            features[:, 3] = premium_value
+            features[:, FEATURE_INDEX["premium"]] = premium_value / FEATURE_SCALES["premium"]
             reserve = float(self._predict(features).detach().cpu().item())
             profitability = premium_value - 0.01 * reserve
             penalty = max(0.0, self.config.solvency_threshold - reserve) ** 2
@@ -228,7 +241,7 @@ class OptimizationEngine:
 
         def objective(premium_value: float) -> float:
             features = self._features_from_policy(policy).clone()
-            features[:, 3] = premium_value
+            features[:, FEATURE_INDEX["premium"]] = premium_value / FEATURE_SCALES["premium"]
             reserve = float(self._predict(features).detach().cpu().item())
             return -(premium_value - 0.01 * reserve)
 

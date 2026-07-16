@@ -28,6 +28,8 @@ def test_digital_twin_forecast_has_rows() -> None:
         model=build_model(config),
         device=DeviceManager(prefer_mixed_precision=False).device,
         config=config.digital_twin,
+        target_mean=0.0,
+        target_std=1.0,
     )
     frame = engine.reserve_forecast(policy, steps=5)
     assert len(frame) == 5

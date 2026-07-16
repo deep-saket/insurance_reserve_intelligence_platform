@@ -37,12 +37,19 @@ class SumAssuredMonotonicityLoss(BaseLoss):
     ) -> torch.Tensor:
         del context
         features = batch["features"]
+        raw_sum_assured = batch["raw_features"][:, _S_IDX : _S_IDX + 1]
+        target_mean = batch["target_mean"].to(predictions.device)
+        target_std = batch["target_std"].to(predictions.device)
 
         features_high = features.clone()
         features_high[:, _S_IDX] = features_high[:, _S_IDX] + _DELTA
 
         pred_high = model(features_high)
+        sum_assured_high = raw_sum_assured + 5_000.0
+
+        reserve_base = (predictions * target_std + target_mean) * raw_sum_assured
+        reserve_high = (pred_high * target_std + target_mean) * sum_assured_high
 
         # dV/dS < 0 is a violation — penalise relu(V(S) - V(S+Δ))
-        violation = predictions - pred_high
+        violation = reserve_base - reserve_high
         return self.reduce(torch.relu(violation) * 10.0)

@@ -10,6 +10,8 @@ from src.losses.age_monotonicity_loss import AgeMonotonicityLoss
 from src.losses.boundary_loss import BoundaryLoss
 from src.losses.data_loss import DataLoss
 from src.losses.interest_rate_monotonicity_loss import InterestRateMonotonicityLoss
+from src.losses.interest_rate_scenario_loss import InterestRateScenarioLoss
+from src.losses.interest_rate_peak_loss import InterestRatePeakLoss
 from src.losses.l2_regularization_loss import L2RegularizationLoss
 from src.losses.mortality_monotonicity_loss import MortalityMonotonicityLoss
 from src.losses.pde_loss import PDEResidualLoss
@@ -26,6 +28,8 @@ LOSS_REGISTRY = {
     "mortality_monotonicity_loss": MortalityMonotonicityLoss,
     "age_monotonicity_loss": AgeMonotonicityLoss,
     "interest_rate_monotonicity_loss": InterestRateMonotonicityLoss,
+    "interest_rate_scenario_loss": InterestRateScenarioLoss,
+    "interest_rate_peak_loss": InterestRatePeakLoss,
     "solvency_loss": SolvencyLoss,
     "reserve_ceiling_loss": ReserveCeilingLoss,
     "smoothness_loss": SmoothnessLoss,

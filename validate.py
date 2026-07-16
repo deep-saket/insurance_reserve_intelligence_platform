@@ -32,7 +32,12 @@ import torch
 
 from src.actuarial.actuarial_solver import ThieleSolver
 from src.actuarial.policy import Policy
-from src.data.dataset import FEATURE_INDEX, FEATURE_SCALES
+from src.data.dataset import (
+    FEATURE_INDEX,
+    FEATURE_SCALES,
+    build_policy_feature_array,
+    normalize_raw_feature_array,
+)
 from src.data.simulator import PolicySimulator
 from src.pipeline import build_dataloaders, build_model
 from src.utils.checkpoint import CheckpointManager
@@ -57,15 +62,10 @@ def predict_trajectory(model, policy, times, target_mean, target_std, device):
     """Run PINN for every time point and denormalise to real £."""
     reserves = []
     for t in times:
-        mu = policy.mortality_profile.intensity_at(t)
-        feat = torch.tensor([
-            t                    / FEATURE_SCALES["time"],
-            float(policy.age)    / FEATURE_SCALES["age"],
-            policy.interest_rate / FEATURE_SCALES["interest_rate"],
-            policy.premium       / FEATURE_SCALES["premium"],
-            policy.sum_assured   / FEATURE_SCALES["sum_assured"],
-            mu                   / FEATURE_SCALES["mortality"],
-        ], dtype=torch.float32).unsqueeze(0).to(device)
+        feat = torch.tensor(
+            normalize_raw_feature_array(build_policy_feature_array(policy=policy, time_point=float(t))),
+            dtype=torch.float32,
+        ).unsqueeze(0).to(device)
         with torch.no_grad():
             z = model(feat).item()
         v = z * target_std + target_mean
@@ -77,15 +77,13 @@ def pde_residual(model, policy, times, target_mean, target_std, device):
     """Compute Thiele PDE residual at each interior time point."""
     residuals = []
     for t in times[1:-1]:   # skip endpoints
-        mu = policy.mortality_profile.intensity_at(t)
-        feat = torch.tensor([
-            t                    / FEATURE_SCALES["time"],
-            float(policy.age)    / FEATURE_SCALES["age"],
-            policy.interest_rate / FEATURE_SCALES["interest_rate"],
-            policy.premium       / FEATURE_SCALES["premium"],
-            policy.sum_assured   / FEATURE_SCALES["sum_assured"],
-            mu                   / FEATURE_SCALES["mortality"],
-        ], dtype=torch.float32).unsqueeze(0).to(device).requires_grad_(True)
+        mu = policy.mortality_profile.intensity_at(float(t))
+        feat = torch.tensor(
+            normalize_raw_feature_array(
+                build_policy_feature_array(policy=policy, time_point=float(t), mortality=float(mu))
+            ),
+            dtype=torch.float32,
+        ).unsqueeze(0).to(device).requires_grad_(True)
 
         z = model(feat)
         # dz/dt in normalised time
@@ -97,7 +95,7 @@ def pde_residual(model, policy, times, target_mean, target_std, device):
         v = z.item() * target_std + target_mean
         V = v * policy.sum_assured
         S = policy.sum_assured
-        r = policy.interest_rate
+        r = policy.scenario_interest_rate
         P = policy.premium
 
         # Thiele: dV/dt = r*V + P - mu*(S - V)
@@ -168,15 +166,10 @@ def check_boundary(model, policies, target_mean, target_std, device) -> CheckRes
     errors = []
     for policy in policies:
         t_T = float(policy.term)
-        mu  = policy.mortality_profile.intensity_at(t_T)
-        feat = torch.tensor([
-            t_T                  / FEATURE_SCALES["time"],
-            float(policy.age)    / FEATURE_SCALES["age"],
-            policy.interest_rate / FEATURE_SCALES["interest_rate"],
-            policy.premium       / FEATURE_SCALES["premium"],
-            policy.sum_assured   / FEATURE_SCALES["sum_assured"],
-            mu                   / FEATURE_SCALES["mortality"],
-        ], dtype=torch.float32).unsqueeze(0).to(device)
+        feat = torch.tensor(
+            normalize_raw_feature_array(build_policy_feature_array(policy=policy, time_point=t_T)),
+            dtype=torch.float32,
+        ).unsqueeze(0).to(device)
         with torch.no_grad():
             z = model(feat).item()
         V_T = (z * target_std + target_mean) * policy.sum_assured
@@ -245,16 +238,10 @@ def check_monotonicity(model, policies, target_mean, target_std, device) -> Chec
 
     for policy in policies[:50]:
         t_mid = float(policy.term) / 2
-        mu    = policy.mortality_profile.intensity_at(t_mid)
-
-        base_feat = [
-            t_mid                / FEATURE_SCALES["time"],
-            float(policy.age)    / FEATURE_SCALES["age"],
-            policy.interest_rate / FEATURE_SCALES["interest_rate"],
-            policy.premium       / FEATURE_SCALES["premium"],
-            policy.sum_assured   / FEATURE_SCALES["sum_assured"],
-            mu                   / FEATURE_SCALES["mortality"],
-        ]
+        mu = policy.mortality_profile.intensity_at(t_mid)
+        base_feat = normalize_raw_feature_array(
+            build_policy_feature_array(policy=policy, time_point=t_mid, mortality=mu)
+        ).tolist()
 
         def predict(feat_list, sa):
             f = torch.tensor(feat_list, dtype=torch.float32).unsqueeze(0).to(device)
@@ -272,7 +259,7 @@ def check_monotonicity(model, policies, target_mean, target_std, device) -> Chec
             ("dV/dS > 0  (higher sum assured → higher reserve)", True),
         ]):
             feat_bump = base_feat.copy()
-            feat_idx = [FEATURE_INDEX["interest_rate"], FEATURE_INDEX["mortality"],
+            feat_idx = [FEATURE_INDEX["scenario_interest_rate"], FEATURE_INDEX["mortality"],
                         FEATURE_INDEX["premium"], FEATURE_INDEX["sum_assured"]][i]
             feat_bump[feat_idx] *= 1.10
             V1 = predict(feat_bump, bumped_sa := policy.sum_assured * 1.10 if label.startswith("dV/dS") else policy.sum_assured)

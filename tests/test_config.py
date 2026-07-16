@@ -17,7 +17,7 @@ def test_config_loader_reads_yaml() -> None:
     """Verify that the YAML configuration loads into the typed config object."""
     config = ConfigLoader.load(Path("configs/config.yaml"))
     assert config.project_name == "src"
-    assert config.model.input_dim == 6
+    assert config.model.input_dim == 7
     assert config.losses.terms["data_loss"].enabled is True
     assert config.loss_settings.reduction == "mean"
 

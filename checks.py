@@ -35,7 +35,9 @@ for p in policies:
             "age": p.age,
             "term": p.term,
             "premium": p.premium,
-            "interest_rate": p.interest_rate,
+            "pricing_interest_rate": p.pricing_interest_rate,
+            "scenario_interest_rate": p.scenario_interest_rate,
+            "interest_rate": p.scenario_interest_rate,
             "sum_assured": p.sum_assured,
 
             # mortality at issue

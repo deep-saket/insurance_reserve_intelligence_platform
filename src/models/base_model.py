@@ -19,7 +19,15 @@ class BaseReserveModel(nn.Module, ABC):
         input_features: Ordered feature names expected by the model.
     """
 
-    input_features: tuple[str, ...] = ("t", "age", "interest_rate", "premium", "sum_assured", "mortality")
+    input_features: tuple[str, ...] = (
+        "t",
+        "age",
+        "pricing_interest_rate",
+        "scenario_interest_rate",
+        "premium",
+        "sum_assured",
+        "mortality",
+    )
 
     @abstractmethod
     def forward(self, features: torch.Tensor) -> torch.Tensor:

@@ -235,4 +235,4 @@ def test_scenario_cloning_does_not_double_apply_underwriting_factor() -> None:
     )[0]
 
     assert scenario_policy.mortality_profile.intensity_at(0.0) == pytest.approx(0.00143)
-    assert scenario_policy.premium > policy.premium * 1.05
+    assert scenario_policy.premium == pytest.approx(policy.premium * 1.05)

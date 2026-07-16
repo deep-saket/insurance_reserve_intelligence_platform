@@ -36,7 +36,9 @@ def policies_to_dataframe(policies: list[Policy]) -> pd.DataFrame:
             "age": policy.age,
             "term": policy.term,
             "premium": policy.premium,
-            "interest_rate": policy.interest_rate,
+            "pricing_interest_rate": policy.pricing_interest_rate,
+            "scenario_interest_rate": policy.scenario_interest_rate,
+            "interest_rate": policy.scenario_interest_rate,
             "sum_assured": policy.sum_assured,
             "mortality_source": policy.mortality_profile.source,
             # Derived actuarial quantities
@@ -82,7 +84,9 @@ def reserve_trajectories_to_dataframe(
                     # Contextual policy fields repeated for convenient groupby/filter
                     "age": policy.age,
                     "term": policy.term,
-                    "interest_rate": policy.interest_rate,
+                    "pricing_interest_rate": policy.pricing_interest_rate,
+                    "scenario_interest_rate": policy.scenario_interest_rate,
+                    "interest_rate": policy.scenario_interest_rate,
                     "sum_assured": policy.sum_assured,
                     "premium": policy.premium,
                     "mortality_at_t": policy.mortality_profile.intensity_at(t),

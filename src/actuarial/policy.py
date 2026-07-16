@@ -1,7 +1,9 @@
 """Policy domain models.
 
-Created: 2026-05-31
-Purpose: Define policy and mortality containers used throughout the platform.
+Created: 2026-05-31  Revised: 2026-07-02
+Purpose: Define policy and mortality containers used throughout the platform,
+including explicit separation between pricing-time and scenario-time interest
+rates.
 """
 
 from __future__ import annotations
@@ -56,7 +58,10 @@ class Policy:
         age: Age at policy inception.
         term: Policy term in years.
         premium: Premium level used in valuation.
-        interest_rate: Interest-rate assumption for reserve growth.
+        pricing_interest_rate: Interest rate used when the premium is priced at
+            issue. This belongs to contract origination semantics.
+        scenario_interest_rate: Interest rate used for reserve valuation,
+            scenario analysis, and stress testing after the policy is in force.
         sum_assured: Death benefit amount.
         mortality_profile: Mortality assumptions over the policy term.
         metadata: Optional auxiliary policy descriptors.
@@ -64,16 +69,43 @@ class Policy:
     Business Interpretation:
         This object is the digital representation of an insurance contract used by
         the reserve engine, stress tester, optimizer, and digital twin.
+
+    Why two rates exist:
+        In prior versions of the project a single ``interest_rate`` variable was
+        overloaded to mean both:
+
+        1. the issue/pricing rate that determines premium adequacy
+        2. the scenario/valuation rate used in later reserve stress tests
+
+        Those are not always the same business concept. Separating them avoids a
+        semantic mismatch where the model is trained mostly on contracts priced
+        at rate ``r`` but later evaluated on fixed-premium policies shocked to a
+        different rate ``r'``.
     """
 
     policy_id: str
     age: int
     term: int
     premium: float
-    interest_rate: float
+    pricing_interest_rate: float
+    scenario_interest_rate: float
     sum_assured: float
     mortality_profile: MortalityProfile
     metadata: dict[str, float | int | str] = field(default_factory=dict)
+
+    @property
+    def interest_rate(self) -> float:
+        """Return the valuation/scenario interest rate.
+
+        Returns:
+            float: Scenario interest rate currently applied to reserve valuation.
+
+        Business Interpretation:
+            This compatibility alias keeps older code paths readable while the
+            platform transitions to explicit pricing-vs-scenario rate semantics.
+        """
+
+        return self.scenario_interest_rate
 
     def times(self, num_steps: int) -> np.ndarray:
         """Return evenly spaced time points over the policy term.

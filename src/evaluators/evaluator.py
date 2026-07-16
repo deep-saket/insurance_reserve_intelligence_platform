@@ -59,7 +59,7 @@ class ReserveEvaluator:
             create_graph=True,
         )[0]
 
-        r_idx = FEATURE_INDEX["interest_rate"]
+        r_idx = FEATURE_INDEX["scenario_interest_rate"]
         grad2_z = torch.autograd.grad(
             outputs=grad_z[:, r_idx:r_idx+1], inputs=inputs,
             grad_outputs=torch.ones_like(grad_z[:, r_idx:r_idx+1]),
@@ -75,11 +75,14 @@ class ReserveEvaluator:
             return (g.detach() * target_std * S / (scale_x**2)).cpu().numpy()
 
         return pd.DataFrame({
-            "dV_dr":   to_real(grad_z[:, FEATURE_INDEX["interest_rate"]], FEATURE_SCALES["interest_rate"]),
+            "dV_dr":   to_real(
+                grad_z[:, FEATURE_INDEX["scenario_interest_rate"]],
+                FEATURE_SCALES["scenario_interest_rate"],
+            ),
             "dV_dmu":  to_real(grad_z[:, FEATURE_INDEX["mortality"]],     FEATURE_SCALES["mortality"]),
             "dV_dP":   to_real(grad_z[:, FEATURE_INDEX["premium"]],       FEATURE_SCALES["premium"]),
             "dV_dS":   to_real(grad_z[:, FEATURE_INDEX["sum_assured"]],   FEATURE_SCALES["sum_assured"]),
-            "d2V_dr2": to_real2(grad2_z, FEATURE_SCALES["interest_rate"]),
+            "d2V_dr2": to_real2(grad2_z, FEATURE_SCALES["scenario_interest_rate"]),
         })
 
     def generate_sensitivity_report(self, features, output_path,

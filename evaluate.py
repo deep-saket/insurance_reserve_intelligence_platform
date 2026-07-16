@@ -12,6 +12,7 @@ import torch
 import pandas as pd
 
 from src.actuarial.actuarial_solver import ThieleSolver
+from src.data.dataset import build_policy_feature_array, normalize_raw_feature_array
 from src.visualization.reserve_plots import plot_reserve_trajectory
 
 from src.evaluators.evaluator import ReserveEvaluator
@@ -64,10 +65,7 @@ def main() -> None:
     # ==========================================
     # Reserve Trajectory Plot
     # ==========================================
-    print(type(test_policies))
-    print(type(test_policies[0]))
-    print(test_policies[0])
-    policy = test_policies[0]  # Using the first test policy for trajectory plotting
+    policy = test_policies[0]
 
     solver = ThieleSolver(
         method=config.solver.method,
@@ -81,16 +79,35 @@ def main() -> None:
         num_steps=config.data.time_steps,
     )
 
+    pinn_reserves: list[float] = []
+    model.eval()
+    for time_point in trajectory.times:
+        features = torch.tensor(
+            normalize_raw_feature_array(
+                build_policy_feature_array(policy=policy, time_point=float(time_point))
+            ),
+            dtype=torch.float32,
+            device=device_manager.device,
+        ).unsqueeze(0)
+        with torch.no_grad():
+            prediction_z = model(features)
+        reserve = (
+            (prediction_z.item() * test_dataset.target_std + test_dataset.target_mean)
+            * policy.sum_assured
+        )
+        pinn_reserves.append(float(reserve))
+
     trajectory_df = pd.DataFrame(
         {
             "time": trajectory.times,
-            "reserve": trajectory.reserves,
+            "classical_reserve": trajectory.reserves,
+            "pinn_reserve": pinn_reserves,
         }
     )
 
     reserve_plot_path = (
         Path(config.paths.reports_dir)
-        / "reserve_trajectory.png"
+        / "reserve_trajectory_comparison.png"
     )
 
     plot_reserve_trajectory(

@@ -138,6 +138,10 @@ class PINNTrainer(BaseTrainer):
         self.epochs_without_improvement = 0
         self.start_epoch = 0
         self.active_loss_names = self.loss_fn.active_loss_names
+        self.base_loss_weights = {
+            name: float(term.weight or 0.0)
+            for name, term in self.config.losses.terms.items()
+        }
         self.history: dict[str, list[float]] = {"train_total_loss": [], "validation_total_loss": []}
         for name in self.active_loss_names:
             self.history[f"train_raw_{name}"] = []
@@ -232,6 +236,17 @@ class PINNTrainer(BaseTrainer):
             "target_mean": batch["target_mean"].to(self.device_manager.device),
             "target_std": batch["target_std"].to(self.device_manager.device),
             "term": batch["term"].to(self.device_manager.device),
+            "terminal_mortality": batch["terminal_mortality"].to(self.device_manager.device),
+            "interest_rate_sensitivity_target": batch["interest_rate_sensitivity_target"].to(self.device_manager.device),
+            "interest_rate_shock_down_target": batch["interest_rate_shock_down_target"].to(self.device_manager.device),
+            "interest_rate_shock_up_target": batch["interest_rate_shock_up_target"].to(self.device_manager.device),
+            "interest_rate_shock_delta": batch["interest_rate_shock_delta"].to(self.device_manager.device),
+            "interest_rate_shock_down_peak_time": batch["interest_rate_shock_down_peak_time"].to(self.device_manager.device),
+            "interest_rate_shock_up_peak_time": batch["interest_rate_shock_up_peak_time"].to(self.device_manager.device),
+            "interest_rate_shock_down_peak_mortality": batch["interest_rate_shock_down_peak_mortality"].to(self.device_manager.device),
+            "interest_rate_shock_up_peak_mortality": batch["interest_rate_shock_up_peak_mortality"].to(self.device_manager.device),
+            "interest_rate_shock_down_peak_target": batch["interest_rate_shock_down_peak_target"].to(self.device_manager.device),
+            "interest_rate_shock_up_peak_target": batch["interest_rate_shock_up_peak_target"].to(self.device_manager.device),
         }
 
     def _aggregate_epoch(self, loss_values: list[dict[str, Any]]) -> EpochMetrics:
@@ -374,9 +389,15 @@ class PINNTrainer(BaseTrainer):
         "pde_loss", "boundary_loss",
         "mortality_monotonicity_loss", "age_monotonicity_loss",
         "interest_rate_monotonicity_loss", "sum_assured_monotonicity_loss",
+        "interest_rate_scenario_loss", "interest_rate_peak_loss",
         "solvency_loss", "reserve_ceiling_loss",
         "smoothness_loss", "portfolio_consistency_loss",
     }
+
+    def _warmup_epochs(self) -> int:
+        """Return the number of epochs used for constraint warmup."""
+
+        return max(30, int(self.config.trainer.epochs * 0.20))
 
     def _curriculum_weight(self, epoch: int, name: str) -> float:
         """Return the effective weight for a loss term at a given epoch.
@@ -390,11 +411,11 @@ class PINNTrainer(BaseTrainer):
         correct reserve shape before constraints start steering the gradient.
         The warmup length is 20% of total epochs (minimum 30 epochs).
         """
-        cfg_weight = float(self.config.losses.terms[name].weight or 0.0)
+        cfg_weight = self.base_loss_weights[name]
         if name not in self._CONSTRAINT_LOSSES:
             return cfg_weight
-        warmup = max(15, int(self.config.trainer.epochs * 0.10))  # 10% warmup: shape learned faster on fresh run
-        effective_epoch = max(0, epoch - self.start_epoch)  # relative to this run
+        warmup = self._warmup_epochs()
+        effective_epoch = max(0, epoch)
         ramp = min(1.0, effective_epoch / warmup)
         return cfg_weight * ramp
 
@@ -424,10 +445,9 @@ class PINNTrainer(BaseTrainer):
             for name, term in self.config.losses.terms.items():
                 if term.enabled and name in self.loss_fn.losses:
                     term.weight = self._curriculum_weight(epoch, name)
-            warmup = max(30, int(self.config.trainer.epochs * 0.20))
-            rel_epoch = max(0, epoch - self.start_epoch)
-            if rel_epoch <= warmup:
-                ramp_pct = rel_epoch / warmup * 100
+            warmup = self._warmup_epochs()
+            if epoch <= warmup:
+                ramp_pct = epoch / warmup * 100
                 self.logger.info("Curriculum warmup: %.0f%% of constraint weight active", ramp_pct)
             train_metrics = self._run_epoch(train_loader, training=True)
             validation_metrics = self._run_epoch(validation_loader, training=False)

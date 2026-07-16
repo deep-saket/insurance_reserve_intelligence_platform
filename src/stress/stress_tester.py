@@ -14,6 +14,7 @@ import pandas as pd
 import torch
 
 from src.actuarial.policy import Policy
+from src.data.dataset import FEATURE_INDEX, FEATURE_SCALES, build_policy_feature_array, normalize_raw_feature_array
 from src.utils.config import StressScenarioConfig
 from src.visualization.stress_plots import plot_stress_comparison
 
@@ -56,17 +57,28 @@ class StressTester:
         management what-if analysis.
     """
 
-    def __init__(self, model: torch.nn.Module, device: torch.device, config: StressScenarioConfig) -> None:
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        device: torch.device,
+        config: StressScenarioConfig,
+        target_mean: float,
+        target_std: float,
+    ) -> None:
         """Initialize the stress tester.
 
         Args:
             model: Trained reserve model.
             device: Execution device for inference.
             config: Stress scenario configuration.
+            target_mean: Mean used to standardize reserve-ratio targets.
+            target_std: Standard deviation used to standardize reserve-ratio targets.
         """
         self.model = model.to(device)
         self.device = device
         self.config = config
+        self.target_mean = float(target_mean)
+        self.target_std = float(target_std)
 
     def _policy_features(self, policy: Policy, time_point: float = 0.0) -> torch.Tensor:
         """Build a baseline feature tensor for one policy.
@@ -78,13 +90,9 @@ class StressTester:
         Returns:
             torch.Tensor: Single-row feature tensor.
         """
-        mortality = policy.mortality_profile.intensity_at(time_point)
-        features = torch.tensor(
-            [[time_point, float(policy.age), policy.interest_rate, policy.premium, policy.sum_assured, mortality]],
-            dtype=torch.float32,
-            device=self.device,
-        )
-        return features
+        raw = build_policy_feature_array(policy=policy, time_point=time_point)
+        normalized = normalize_raw_feature_array(raw)
+        return torch.tensor(normalized, dtype=torch.float32, device=self.device).unsqueeze(0)
 
     def _predict(self, features: torch.Tensor) -> float:
         """Predict a scalar reserve value.
@@ -97,7 +105,9 @@ class StressTester:
         """
         self.model.eval()
         with torch.no_grad():
-            return float(self.model(features).item())
+            z = float(self.model(features).item())
+        sum_assured = float(features[0, FEATURE_INDEX["sum_assured"]].item()) * FEATURE_SCALES["sum_assured"]
+        return float((z * self.target_std + self.target_mean) * sum_assured)
 
     def _apply_shock(self, policy: Policy, scenario_name: str) -> torch.Tensor:
         """Apply a named shock to a policy feature vector.
@@ -119,16 +129,18 @@ class StressTester:
         features = self._policy_features(policy)
         shocked = features.clone()
         if scenario_name == "mortality_shock":
-            shocked[:, 5] *= 1.0 + self.config.mortality_shock
+            shocked[:, FEATURE_INDEX["mortality"]] *= 1.0 + self.config.mortality_shock
         elif scenario_name == "interest_rate_shock":
-            shocked[:, 2] += self.config.interest_rate_shock
+            shocked[:, FEATURE_INDEX["scenario_interest_rate"]] += (
+                self.config.interest_rate_shock / FEATURE_SCALES["scenario_interest_rate"]
+            )
         elif scenario_name == "inflation_shock":
-            shocked[:, 4] *= 1.0 + self.config.inflation_shock
-            shocked[:, 3] *= 1.0 + 0.5 * self.config.inflation_shock
+            shocked[:, FEATURE_INDEX["sum_assured"]] *= 1.0 + self.config.inflation_shock
+            shocked[:, FEATURE_INDEX["premium"]] *= 1.0 + 0.5 * self.config.inflation_shock
         elif scenario_name == "longevity_shock":
-            shocked[:, 5] *= 1.0 + self.config.longevity_shock
+            shocked[:, FEATURE_INDEX["mortality"]] *= 1.0 + self.config.longevity_shock
         elif scenario_name == "lapse_shock":
-            shocked[:, 3] *= 1.0 - self.config.lapse_shock
+            shocked[:, FEATURE_INDEX["premium"]] *= 1.0 - self.config.lapse_shock
         else:
             raise ValueError(f"Unsupported stress scenario: {scenario_name}")
         return shocked

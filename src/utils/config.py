@@ -36,6 +36,8 @@ def _default_loss_terms() -> dict[str, "LossTermConfig"]:
         "mortality_monotonicity_loss": LossTermConfig(enabled=False, weight=0.2),
         "age_monotonicity_loss": LossTermConfig(enabled=False, weight=0.2),
         "interest_rate_monotonicity_loss": LossTermConfig(enabled=False, weight=0.2),
+        "interest_rate_scenario_loss": LossTermConfig(enabled=False, weight=1.0),
+        "interest_rate_peak_loss": LossTermConfig(enabled=False, weight=1.0),
         "sum_assured_monotonicity_loss": LossTermConfig(enabled=True, weight=1.0),
         "solvency_loss": LossTermConfig(enabled=True, weight=1.0),
         "reserve_ceiling_loss": LossTermConfig(enabled=True, weight=1.0),
@@ -165,7 +167,7 @@ class ModelConfig:
         inference, sensitivities, and digital twin simulation.
     """
 
-    input_dim: int = 6
+    input_dim: int = 7
     hidden_dim: int = 128
     num_layers: int = 4
     activation: str = "tanh"

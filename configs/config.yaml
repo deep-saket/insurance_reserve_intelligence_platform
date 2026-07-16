@@ -42,7 +42,7 @@ solver:
   atol: 1.0e-8
 
 model:
-  input_dim: 6
+  input_dim: 7
   hidden_dim: 256
   num_layers: 6
   activation: tanh
@@ -52,19 +52,19 @@ model:
 losses:
   data_loss:
     enabled: true
-    weight: 4.0   # increase: data fit must dominate early training
+    weight: 4.0   # keep data fit dominant in early training
 
   pde_loss:
     enabled: true
-    weight: 3.0   # normalised residual is O(1); 0.1 balances against data_loss
+    weight: 0.2   # corrected z-space PDE residual is stronger; keep it secondary to fit
 
   boundary_loss:
     enabled: true
-    weight: 2.0   # was 10.0 - was dominating, causing flat underfitting
+    weight: 0.01  # boundary raw loss is large in z-space; small weight is sufficient
 
   mortality_monotonicity_loss:
     enabled: true
-    weight: 0.2
+    weight: 0.005
 
   age_monotonicity_loss:
     enabled: false
@@ -72,19 +72,27 @@ losses:
 
   interest_rate_monotonicity_loss:
     enabled: true
-    weight: 0.2
+    weight: 5.0
+
+  interest_rate_scenario_loss:
+    enabled: true
+    weight: 25000.0
+
+  interest_rate_peak_loss:
+    enabled: true
+    weight: 30000.0  # peak reserve-ratio targets are tiny; use a large weight to make the signal matter
 
   solvency_loss:
     enabled: true
-    weight: 1.0
+    weight: 0.1
 
   reserve_ceiling_loss:
     enabled: true
-    weight: 1.0
+    weight: 0.05
 
   smoothness_loss:
     enabled: true
-    weight: 0.1   # d²v/dt² is now dimensionless; 0.01 is a light curvature penalty
+    weight: 0.01
 
   portfolio_consistency_loss:
     enabled: false
@@ -96,23 +104,23 @@ losses:
 
   sum_assured_monotonicity_loss:
     enabled: true
-    weight: 0.2
+    weight: 0.0001
 
 loss_settings:
   reduction: mean
   use_adaptive_weights: false
 
 trainer:
-  run_name: run_08
-  epochs: 200
-  learning_rate: 0.001
+  run_name: run_17_rate_curve_resume_longer
+  epochs: 90
+  learning_rate: 0.0002
   weight_decay: 5.0e-5
   gradient_clip_norm: 0.5
-  early_stopping_patience: 100
-  scheduler_patience: 30
+  early_stopping_patience: 45
+  scheduler_patience: 10
   scheduler_factor: 0.5
-  checkpoint_every: 2
-  resume_from: artifacts/run_08/checkpoints/epoch_038.pt
+  checkpoint_every: 5
+  resume_from: artifacts/run_16_rate_curve_longer/checkpoints/epoch_045.pt
   device: auto
   tensorboard_enabled: true
   mixed_precision: false   # fp16 AMP overflows on large reserve/sum_assured magnitudes → NaN

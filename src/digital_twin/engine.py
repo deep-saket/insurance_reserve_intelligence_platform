@@ -13,6 +13,12 @@ import pandas as pd
 import torch
 
 from src.actuarial.policy import Policy
+from src.data.dataset import (
+    FEATURE_INDEX,
+    FEATURE_SCALES,
+    build_policy_feature_array,
+    normalize_raw_feature_array,
+)
 from src.data.simulator import PolicySimulator, ScenarioDefinition
 from src.utils.config import DigitalTwinConfig
 
@@ -55,6 +61,8 @@ class DigitalTwinEngine:
         model: torch.nn.Module,
         device: torch.device,
         config: DigitalTwinConfig,
+        target_mean: float,
+        target_std: float,
         simulator: PolicySimulator | None = None,
     ) -> None:
         """Initialize the digital twin engine.
@@ -63,11 +71,15 @@ class DigitalTwinEngine:
             model: Trained reserve model.
             device: Execution device for inference.
             config: Digital twin simulation settings.
+            target_mean: Mean used to standardize reserve-ratio targets.
+            target_std: Standard deviation used to standardize reserve-ratio targets.
             simulator: Optional policy simulator used for scenario cloning.
         """
         self.model = model.to(device)
         self.device = device
         self.config = config
+        self.target_mean = float(target_mean)
+        self.target_std = float(target_std)
         self.simulator = simulator
 
     def _feature_tensor(self, policy: Policy, time_point: float) -> torch.Tensor:
@@ -80,18 +92,17 @@ class DigitalTwinEngine:
         Returns:
             torch.Tensor: Single-row model input tensor.
         """
-        return torch.tensor(
-            [[
-                time_point,
-                float(policy.age),
-                policy.interest_rate,
-                policy.premium,
-                policy.sum_assured,
-                policy.mortality_profile.intensity_at(time_point),
-            ]],
-            dtype=torch.float32,
-            device=self.device,
-        )
+        raw = build_policy_feature_array(policy=policy, time_point=time_point)
+        normalized = normalize_raw_feature_array(raw)
+        return torch.tensor(normalized, dtype=torch.float32, device=self.device).unsqueeze(0)
+
+    def _predict_reserve(self, features: torch.Tensor) -> float:
+        """Predict reserve in currency units from normalized features."""
+
+        with torch.no_grad():
+            z = float(self.model(features).item())
+        sum_assured = float(features[0, FEATURE_INDEX["sum_assured"]].item()) * FEATURE_SCALES["sum_assured"]
+        return float((z * self.target_std + self.target_mean) * sum_assured)
 
     def reserve_forecast(self, policy: Policy, steps: int | None = None) -> pd.DataFrame:
         """Forecast reserves over time for a policy.
@@ -114,7 +125,7 @@ class DigitalTwinEngine:
         reserves: list[float] = []
         with torch.no_grad():
             for time_point in times:
-                reserves.append(float(self.model(self._feature_tensor(policy, float(time_point))).item()))
+                reserves.append(self._predict_reserve(self._feature_tensor(policy, float(time_point))))
         return pd.DataFrame({"time": times, "reserve": reserves, "policy_id": policy.policy_id})
 
     def scenario_simulation(self, policies: list[Policy], scenario: ScenarioDefinition) -> pd.DataFrame:
@@ -166,11 +177,12 @@ class DigitalTwinEngine:
         for regime in regimes:
             for policy in policies:
                 features = self._feature_tensor(policy, 0.0)
-                features[:, 2] += regime.interest_rate_shift
-                features[:, 4] *= regime.inflation_multiplier
-                features[:, 5] *= regime.mortality_multiplier
-                with torch.no_grad():
-                    reserve = float(self.model(features).item())
+                features[:, FEATURE_INDEX["scenario_interest_rate"]] += (
+                    regime.interest_rate_shift / FEATURE_SCALES["scenario_interest_rate"]
+                )
+                features[:, FEATURE_INDEX["sum_assured"]] *= regime.inflation_multiplier
+                features[:, FEATURE_INDEX["mortality"]] *= regime.mortality_multiplier
+                reserve = self._predict_reserve(features)
                 rows.append({"policy_id": policy.policy_id, "regime": regime.name, "reserve": reserve})
         return pd.DataFrame(rows)
 
@@ -192,7 +204,7 @@ class DigitalTwinEngine:
         self.model.eval()
         with torch.no_grad():
             for policy in policies:
-                reserve = float(self.model(self._feature_tensor(policy, 0.0)).item())
+                reserve = self._predict_reserve(self._feature_tensor(policy, 0.0))
                 rows.append({"policy_id": policy.policy_id, "reserve": reserve})
         frame = pd.DataFrame(rows)
         frame["portfolio_reserve"] = frame["reserve"].sum()

@@ -119,7 +119,11 @@ class ThieleSolver(BaseActuarialSolver):
         """
         reserve_value = float(reserve[0])
         mortality = policy.mortality_profile.intensity_at(time_point)
-        derivative = policy.interest_rate * reserve_value + policy.premium - mortality * (policy.sum_assured - reserve_value)
+        derivative = (
+            policy.scenario_interest_rate * reserve_value
+            + policy.premium
+            - mortality * (policy.sum_assured - reserve_value)
+        )
         return np.asarray([derivative], dtype=float)
 
     def _solve_rk4(self, policy: Policy, num_steps: int) -> ReserveTrajectory:

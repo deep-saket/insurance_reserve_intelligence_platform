@@ -21,7 +21,7 @@ matplotlib.use("Agg")   # remove if running interactively / in a notebook
 import matplotlib.pyplot as plt
 import torch
 
-from src.data.dataset import FEATURE_SCALES
+from src.data.dataset import build_policy_feature_array, normalize_raw_feature_array
 from src.pipeline import build_dataloaders, build_model
 from src.utils.config import ConfigLoader
 from src.utils.checkpoint import CheckpointManager
@@ -96,17 +96,9 @@ for idx, policy in enumerate(selected_policies):
     pinn_reserves = []
 
     for t in times:
-        mortality = policy.mortality_profile.intensity_at(t)
-
+        raw_features = build_policy_feature_array(policy=policy, time_point=float(t))
         features = torch.tensor(
-            [
-                t / FEATURE_SCALES["time"],
-                float(policy.age) / FEATURE_SCALES["age"],
-                policy.interest_rate / FEATURE_SCALES["interest_rate"],
-                policy.premium / FEATURE_SCALES["premium"],
-                policy.sum_assured / FEATURE_SCALES["sum_assured"],
-                mortality / FEATURE_SCALES["mortality"],
-            ],
+            normalize_raw_feature_array(raw_features),
             dtype=torch.float32,
         ).unsqueeze(0).to(device)
 

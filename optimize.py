@@ -27,7 +27,7 @@ def main() -> None:
     ensure_directories(config)
     set_seed(config.seed)
 
-    _, _, _, _, test_policies = build_dataloaders(config)
+    _, _, _, test_dataset, test_policies = build_dataloaders(config)
     device_manager = DeviceManager(preferred_device=config.trainer.device, prefer_mixed_precision=False)
     model = build_model(config)
     checkpoint_path = Path(config.paths.checkpoints_dir) / "best_model.pt"
@@ -35,7 +35,13 @@ def main() -> None:
         checkpoint = CheckpointManager(config.paths.checkpoints_dir).load(checkpoint_path, map_location=device_manager.device)
         model.load_state_dict(checkpoint["model_state_dict"])
 
-    engine = OptimizationEngine(model=model, device=device_manager.device, config=config.optimization)
+    engine = OptimizationEngine(
+        model=model,
+        device=device_manager.device,
+        config=config.optimization,
+        target_mean=test_dataset.target_mean,
+        target_std=test_dataset.target_std,
+    )
     policy = test_policies[0]
     reserve_result = engine.target_reserve_optimization(policy, target_reserve=50_000.0)
     premium_result = engine.premium_optimization(policy)
