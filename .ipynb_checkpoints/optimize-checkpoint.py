@@ -1,48 +1,41 @@
-"""Run optimization workflows for the ActuaryTwin platform.
-
-Created: 2026-05-31
-Purpose: Execute reserve-driven pricing and target-search workflows.
-"""
+"""Command-line entrypoint for reserve optimization workflows."""
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
-from src.optimization.optimizer_engine import OptimizationEngine
-from src.pipeline import build_dataloaders, build_model
-from src.utils.checkpoint import CheckpointManager
-from src.utils.config import ConfigLoader, ensure_directories
-from src.utils.device import DeviceManager
-from src.utils.seed import set_seed
-
+from src.optimization.optimization_runner import OptimizationRunner
+from src.utils.config import ConfigLoader
+config = ConfigLoader.load(Path("configs/config.yaml"))
 
 def main() -> None:
-    """Run the optimization entrypoint.
+    """Run optimization workflows from the command line."""
 
-    Business Interpretation:
-        This script exposes the model as a decision-support engine for pricing and
-        reserve-target calibration experiments.
-    """
-    config = ConfigLoader.load(Path("configs/config.yaml"))
-    ensure_directories(config)
-    set_seed(config.seed)
+    parser = argparse.ArgumentParser(description="Run reserve optimization workflows.")
+    parser.add_argument(
+        "--mode",
+        choices=["all", "pricing", "capital", "portfolio", "product", "scenario"],
+        default="all",
+        help="Optimization workflow to run.",
+    )
+    parser.add_argument("--config", default="configs/config.yaml", help="Path to config YAML.")
+    parser.add_argument("--checkpoint", default=None, help="Optional trained checkpoint path.")
+    parser.add_argument(
+        "--output-dir",
+        default=(Path("artifacts") / config.trainer.run_name /  "optimization"),
+        help="Directory for CSV reports, plots, and summary output.",
+    )
+    args = parser.parse_args()
 
-    _, _, _, _, test_policies = build_dataloaders(config)
-    device_manager = DeviceManager(preferred_device=config.trainer.device, prefer_mixed_precision=False)
-    model = build_model(config)
-    checkpoint_path = Path(config.paths.checkpoints_dir) / "best_model.pt"
-    if checkpoint_path.exists():
-        checkpoint = CheckpointManager(config.paths.checkpoints_dir).load(checkpoint_path, map_location=device_manager.device)
-        model.load_state_dict(checkpoint["model_state_dict"])
-
-    engine = OptimizationEngine(model=model, device=device_manager.device, config=config.optimization)
-    policy = test_policies[0]
-    reserve_result = engine.target_reserve_optimization(policy, target_reserve=50_000.0)
-    premium_result = engine.premium_optimization(policy)
-    constrained_result = engine.constrained_premium_optimization(policy)
-    print(reserve_result)
-    print(premium_result)
-    print(constrained_result)
+    runner = OptimizationRunner.from_config_path(
+        config_path=Path(args.config),
+        checkpoint_path=args.checkpoint,
+        output_dir=args.output_dir,
+    )
+    results = runner.run(mode=args.mode)
+    runner.print_before_after(results)
+    print(f"Optimization artifacts written to {args.output_dir}")
 
 
 if __name__ == "__main__":

@@ -65,7 +65,7 @@ losses:
   mortality_monotonicity_loss:
     enabled: true
     weight: 0.005
-
+    
   age_monotonicity_loss:
     enabled: false
     weight: 1.0
@@ -111,8 +111,8 @@ loss_settings:
   use_adaptive_weights: false
 
 trainer:
-  run_name: run_17_rate_curve_resume_longer
-  epochs: 90
+  run_name: run_23
+  epochs: 100
   learning_rate: 0.0002
   weight_decay: 5.0e-5
   gradient_clip_norm: 0.5
@@ -120,7 +120,7 @@ trainer:
   scheduler_patience: 10
   scheduler_factor: 0.5
   checkpoint_every: 5
-  resume_from: artifacts/run_16_rate_curve_longer/checkpoints/epoch_045.pt
+  resume_from: 
   device: auto
   tensorboard_enabled: true
   mixed_precision: false   # fp16 AMP overflows on large reserve/sum_assured magnitudes → NaN
@@ -133,7 +133,7 @@ stress:
   lapse_shock: 0.10
 
 optimization:
-  learning_rate: 0.05
+  learning_rate: 0.005
   steps: 100
   reserve_tolerance: 1.0e-4
   solvency_threshold: 0.0

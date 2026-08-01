@@ -52,7 +52,7 @@ model:
 losses:
   data_loss:
     enabled: true
-    weight: 4.0   # increase: data fit must dominate early training
+    weight: 3.0   # increase: data fit must dominate early training
 
   pde_loss:
     enabled: true
@@ -64,7 +64,7 @@ losses:
 
   mortality_monotonicity_loss:
     enabled: true
-    weight: 0.2
+    weight: 8.0
 
   age_monotonicity_loss:
     enabled: false
@@ -72,7 +72,7 @@ losses:
 
   interest_rate_monotonicity_loss:
     enabled: true
-    weight: 0.2
+    weight: 8.0
 
   solvency_loss:
     enabled: true
@@ -103,8 +103,8 @@ loss_settings:
   use_adaptive_weights: false
 
 trainer:
-  run_name: run_08
-  epochs: 200
+  run_name: run_21
+  epochs: 500
   learning_rate: 0.001
   weight_decay: 5.0e-5
   gradient_clip_norm: 0.5
@@ -112,7 +112,7 @@ trainer:
   scheduler_patience: 30
   scheduler_factor: 0.5
   checkpoint_every: 2
-  resume_from: artifacts/run_08/checkpoints/epoch_038.pt
+  resume_from: artifacts/run_08/checkpoints/epoch_032.pt
   device: auto
   tensorboard_enabled: true
   mixed_precision: false   # fp16 AMP overflows on large reserve/sum_assured magnitudes → NaN
@@ -125,7 +125,7 @@ stress:
   lapse_shock: 0.10
 
 optimization:
-  learning_rate: 0.05
+  learning_rate: 0.005
   steps: 100
   reserve_tolerance: 1.0e-4
   solvency_threshold: 0.0

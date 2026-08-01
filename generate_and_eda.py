@@ -60,8 +60,9 @@ from src.data.mortality_loader import CSVMortalityLoader
 from src.utils.config import ConfigLoader, ensure_directories
 
 # ── constants ──────────────────────────────────────────────────────────────────
+config = ConfigLoader.load(Path("configs/config.yaml"))
 CONFIG_PATH = Path("configs/config.yaml")
-EDA_DIR = Path("artifacts/eda")
+EDA_DIR = (Path("artifacts") / config.trainer.run_name / "eda")
 SAMPLE_TRAJECTORIES = 40   # how many policies to draw on the trajectory plot
 FIGURE_DPI = 130
 PALETTE = "#4C6EF5"        # single-hue accent for histograms
@@ -351,61 +352,101 @@ def plot_reserve_vs_mortality(traj_df: pd.DataFrame) -> None:
 
 
 def plot_reserve_vs_sum_assured(traj_df: pd.DataFrame) -> None:
-    """Reserve vs sum assured — core proportionality relationship."""
+    """Reserve vs sum assured - core proportionality relationship."""
     peak_df = (
         traj_df.groupby(["policy_id", "sum_assured", "age", "interest_rate"])["reserve"]
-        .max().reset_index().rename(columns={"reserve": "peak_reserve"})
+        .max()
+        .reset_index()
+        .rename(columns={"reserve": "peak_reserve"})
     )
-    peak_df["v"] = peak_df["peak_reserve"] / peak_df["sum_assured"]  # normalised ratio
+    peak_df["v"] = peak_df["peak_reserve"] / peak_df["sum_assured"]
 
     fig, axes = plt.subplots(1, 3, figsize=(17, 5))
 
-    # Raw: peak reserve vs sum assured
     sc = axes[0].scatter(
-        peak_df["sum_assured"] / 1_000, peak_df["peak_reserve"],
-        c=peak_df["age"], cmap="plasma", alpha=0.5, s=14, linewidths=0,
+        peak_df["sum_assured"] / 1_000,
+        peak_df["peak_reserve"],
+        c=peak_df["age"],
+        cmap="plasma",
+        alpha=0.5,
+        s=14,
+        linewidths=0,
     )
     fig.colorbar(sc, ax=axes[0], label="Issue age")
-    # Fit line
+
     coeffs = np.polyfit(peak_df["sum_assured"], peak_df["peak_reserve"], 1)
-    x_line = np.linspace(peak_df["sum_assured"].min(), peak_df["sum_assured"].max(), 100)
-    axes[0].plot(x_line / 1_000, np.polyval(coeffs, x_line),
-                 color="#E03131", linewidth=1.5, linestyle="--", label=f"Slope {coeffs[0]:.3f}")
+    x_line = np.linspace(
+        peak_df["sum_assured"].min(),
+        peak_df["sum_assured"].max(),
+        100,
+    )
+    axes[0].plot(
+        x_line / 1_000,
+        np.polyval(coeffs, x_line),
+        color="#E03131",
+        linewidth=1.5,
+        linestyle="--",
+        label=f"Slope {coeffs[0]:.3f}",
+    )
     axes[0].set_xlabel("Sum assured (£k)")
     axes[0].set_ylabel("Peak reserve (£)")
-    axes[0].set_title("Peak reserve vs sum assured(coloured by age)")
+    axes[0].set_title("Peak reserve vs sum assured (coloured by age)")
     axes[0].legend(fontsize=8)
 
-    # Normalised: v = V/S — should be roughly constant across S
     axes[1].scatter(
-        peak_df["sum_assured"] / 1_000, peak_df["v"],
-        c=peak_df["age"], cmap="plasma", alpha=0.5, s=14, linewidths=0,
+        peak_df["sum_assured"] / 1_000,
+        peak_df["v"],
+        c=peak_df["age"],
+        cmap="plasma",
+        alpha=0.5,
+        s=14,
+        linewidths=0,
     )
-    axes[1].axhline(peak_df["v"].mean(), color="#E03131", linewidth=1.4,
-                    linestyle="--", label=f"Mean v = {peak_df['v'].mean():.4f}")
+    axes[1].axhline(
+        peak_df["v"].mean(),
+        color="#E03131",
+        linewidth=1.4,
+        linestyle="--",
+        label=f"Mean v = {peak_df['v'].mean():.4f}",
+    )
     axes[1].set_xlabel("Sum assured (£k)")
     axes[1].set_ylabel("v = Peak reserve / Sum assured")
-    axes[1].set_title("Normalised reserve v = V/S vs sum assured(should be roughly flat — confirms V∝S)")
+    axes[1].set_title("Normalised reserve v = V/S vs sum assured")
     axes[1].legend(fontsize=8)
 
-    # Mean reserve by SA decile
-    peak_df["sa_decile"] = pd.qcut(peak_df["sum_assured"], q=5,
-                                    labels=["Q1(£50k)", "Q2", "Q3", "Q4", "Q5(£1M)"])
+    peak_df["sa_decile"] = pd.qcut(
+        peak_df["sum_assured"],
+        q=5,
+        duplicates="drop",
+    )
+
     grouped = peak_df.groupby("sa_decile", observed=True)["peak_reserve"].mean()
-    bars = axes[2].bar(grouped.index, grouped.values / 1_000, color="#2F9E44", edgecolor="white")
+
+    bar_labels = [str(interval) for interval in grouped.index]
+    bars = axes[2].bar(
+        bar_labels,
+        grouped.values / 1_000,
+        color="#2F9E44",
+        edgecolor="white",
+    )
     axes[2].set_xlabel("Sum assured quintile")
     axes[2].set_ylabel("Mean peak reserve (£k)")
-    axes[2].set_title("Mean peak reserve by sum assured quintile(expected: strongly increasing)")
+    axes[2].set_title("Mean peak reserve by sum assured quintile")
+    axes[2].tick_params(axis="x", labelrotation=25)
+
     for bar, val in zip(bars, grouped.values):
-        axes[2].text(bar.get_x() + bar.get_width() / 2,
-                     bar.get_height() + grouped.max() / 1_000 * 0.01,
-                     f"£{val/1000:.1f}k", ha="center", va="bottom", fontsize=8)
+        axes[2].text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + grouped.max() / 1_000 * 0.01,
+            f"£{val / 1000:.1f}k",
+            ha="center",
+            va="bottom",
+            fontsize=8,
+        )
 
     fig.suptitle("Reserve vs Sum Assured", fontsize=12, fontweight="bold")
     fig.tight_layout()
     _save(fig, "16_reserve_vs_sum_assured.png")
-
-
 def plot_reserve_vs_interest_rate(
     policies: list,
     solver: ThieleSolver,
